@@ -155,11 +155,28 @@ const App: React.FC = () => {
       puzzle.nextLocationId || null
     );
 
-    setGameState(prev => ({
-      ...prev,
-      stage: isFinished ? Stage.SUCCESS : Stage.MAP,
-      currentLocationId: null
-    }));
+    // 다음 스테이지가 있으면 바로 이동, 없으면 성공 화면
+    if (isFinished) {
+      setGameState(prev => ({
+        ...prev,
+        stage: Stage.SUCCESS,
+        currentLocationId: null
+      }));
+    } else if (puzzle.nextLocationId) {
+      // 다음 퍼즐로 바로 이동
+      setGameState(prev => ({
+        ...prev,
+        stage: Stage.PUZZLE_VIEW,
+        currentLocationId: puzzle.nextLocationId!
+      }));
+    } else {
+      // 다음 위치가 없으면 지도로
+      setGameState(prev => ({
+        ...prev,
+        stage: Stage.MAP,
+        currentLocationId: null
+      }));
+    }
   }, [gameState.currentLocationId, gameState.myTeamId, currentRoomCode]);
 
   // 힌트 사용 (Firebase)
