@@ -2,11 +2,23 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0a0a">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Mission IMF">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="format-detection" content="telephone=no">
+
+    <!-- SEO & Social -->
+    <meta name="description" content="Mission: Protocol Fallout - 팀 기반 방탈출 미션 게임">
+    <meta property="og:title" content="Mission: Protocol Fallout">
+    <meta property="og:description" content="핵무기를 해체하고 세계를 구하라! 팀 기반 미션 임파서블 게임">
+    <meta property="og:type" content="website">
+
     <title>Mission: Protocol Fallout</title>
+
+    <!-- Tailwind CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -26,8 +38,10 @@
             },
             animation: {
               'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
               'glitch': 'glitch 1s linear infinite',
               'scan': 'scan 4s linear infinite',
+              'spin-slow': 'spin 3s linear infinite',
             },
             keyframes: {
               glitch: {
@@ -47,20 +61,21 @@
     <style>
       html, body {
         height: 100%;
-        overflow: hidden; /* Prevent global scroll to stop pull-to-refresh */
+        overflow: hidden;
         background-color: #0a0a0a;
         color: #e5e7eb;
-        /* Critical for Mobile: Prevent pull-to-refresh and elastic scrolling */
         overscroll-behavior: none;
         touch-action: manipulation;
         -webkit-user-select: none;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
+        /* iOS safe area padding */
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
       }
-      
+
       #root {
         height: 100%;
-        overflow-y: auto; /* Allow internal scrolling */
+        overflow-y: auto;
         -webkit-overflow-scrolling: touch;
       }
 
@@ -68,6 +83,7 @@
       input, textarea {
         -webkit-user-select: text;
         user-select: text;
+        font-size: 16px; /* Prevent iOS zoom on focus */
       }
 
       /* Custom Scrollbar */
@@ -96,7 +112,7 @@
         );
         background-size: 100% 4px;
       }
-      
+
       .vignette {
         background: radial-gradient(
           circle,
@@ -130,27 +146,43 @@
       .glitch-layer-2 {
         animation: glitch-anim-2 3s infinite linear alternate-reverse;
       }
-      
+
       .noise-bg {
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
       }
+
+      /* Mobile touch improvements */
+      button, a {
+        touch-action: manipulation;
+        -webkit-touch-callout: none;
+      }
+
+      /* Prevent double-tap zoom */
+      * {
+        touch-action: manipulation;
+      }
+
+      /* Loading state */
+      .app-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background: #0a0a0a;
+        color: #00f0ff;
+        font-family: 'Courier New', monospace;
+      }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "@google/genai": "https://esm.sh/@google/genai@^1.32.0",
-    "react/": "https://esm.sh/react@^19.2.1/",
-    "react": "https://esm.sh/react@^19.2.1",
-    "lucide-react": "https://esm.sh/lucide-react@^0.559.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.1/",
-    "peerjs": "https://esm.sh/peerjs@1.5.4"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
+  </head>
   <body>
-    <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <div id="root">
+      <div class="app-loading">
+        <div style="text-align: center;">
+          <div style="font-size: 24px; margin-bottom: 16px;">INITIALIZING...</div>
+          <div style="font-size: 12px; opacity: 0.6;">SECURE CHANNEL LOADING</div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
 </html>

@@ -1,8 +1,15 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY || '';
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 export const getPuzzleHint = async (context: string, userQuery: string): Promise<string> => {
+  // Check if API is configured
+  if (!ai || !apiKey) {
+    console.warn("Gemini API key not configured");
+    return "요원, 본부 통신망이 일시적으로 불안정합니다. 팀원들과 상의해보세요.";
+  }
+
   try {
     const systemInstruction = `
       당신은 IMF(Impossible Missions Force)의 베테랑 본부 통신관입니다.
@@ -36,6 +43,11 @@ export const getPuzzleHint = async (context: string, userQuery: string): Promise
 };
 
 export const generateMissionImage = async (description: string): Promise<string | null> => {
+  if (!ai || !apiKey) {
+    console.warn("Gemini API key not configured");
+    return null;
+  }
+
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
