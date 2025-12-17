@@ -1,8 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { GameState, Stage, LocationId, RoomData } from './types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { GameState, Stage, LocationId, RoomData, TeamData } from './types';
 import { PUZZLES } from './constants';
-import { getRoomData, getTeamsData, updateTeamProgress } from './services/storageService';
-import { sendClientAction } from './services/networkService';
+import {
+  subscribeToRoom,
+  subscribeToTeams,
+  updateTeam,
+  solveSubPuzzle,
+  completeStage,
+  useHint,
+  joinTeam
+} from './services/firebaseService';
 import { ScanlineOverlay } from './components/VisualEffects';
 
 // Screens
@@ -27,7 +34,10 @@ const App: React.FC = () => {
     teams: {},
   });
 
-  // Derived state for current user's team to fix access in renderContent
+  // 현재 방 코드 저장 (Firebase 구독용)
+  const [currentRoomCode, setCurrentRoomCode] = useState<string | null>(null);
+
+  // Derived state for current user's team
   const currentTeam = gameState.myTeamId ? gameState.teams[gameState.myTeamId] : null;
   const unlockedLocations = currentTeam?.unlockedLocations ?? [];
   const completedLocations = currentTeam?.completedLocations ?? [];
@@ -35,45 +45,41 @@ const App: React.FC = () => {
   const completionTimes = currentTeam?.completionTimes ?? {};
   const hintCount = currentTeam?.hintCount ?? 0;
 
-  // Sync Room Data globally
+  // Firebase 실시간 구독
   useEffect(() => {
-    const syncData = () => {
-      const room = getRoomData();
-      const teams = getTeamsData();
-      
+    if (!currentRoomCode) return;
+
+    // 방 정보 구독
+    const unsubRoom = subscribeToRoom(currentRoomCode, (room) => {
       setGameState(prev => {
-        // If user is waiting in room and game starts, move directly to Blue House Puzzle
         let nextStage = prev.stage;
         let nextLocationId = prev.currentLocationId;
-        
+
+        // 대기실에서 게임 시작되면 자동 전환
         if (prev.stage === Stage.WAITING_ROOM && room?.isStarted) {
-           nextStage = Stage.PUZZLE_VIEW;
-           nextLocationId = LocationId.BLUE_HOUSE;
-        }
-        
-        // If game ended, move to success (or result view)
-        if (room?.isEnded && prev.stage !== Stage.SUCCESS && prev.stage !== Stage.ADMIN_DASHBOARD) {
-            // Optional: could force move to a game over screen here
+          nextStage = Stage.PUZZLE_VIEW;
+          nextLocationId = LocationId.BLUE_HOUSE;
         }
 
-        return { 
-            ...prev, 
-            room, 
-            teams, 
-            stage: nextStage,
-            currentLocationId: nextLocationId 
+        return {
+          ...prev,
+          room,
+          stage: nextStage,
+          currentLocationId: nextLocationId
         };
       });
-    };
+    });
 
-    syncData();
-    window.addEventListener('storage', syncData);
-    const interval = setInterval(syncData, 1000); // Polling backup
+    // 팀 정보 구독
+    const unsubTeams = subscribeToTeams(currentRoomCode, (teams) => {
+      setGameState(prev => ({ ...prev, teams }));
+    });
+
     return () => {
-      window.removeEventListener('storage', syncData);
-      clearInterval(interval);
-    }
-  }, []);
+      unsubRoom();
+      unsubTeams();
+    };
+  }, [currentRoomCode]);
 
   // --- Handlers ---
 
@@ -81,268 +87,239 @@ const App: React.FC = () => {
     setGameState(prev => ({ ...prev, stage: Stage.ADMIN_DASHBOARD }));
   };
 
-  const handleUserJoin = (name: string, teamId: number) => {
+  const handleUserJoin = useCallback(async (name: string, teamId: number, roomCode: string) => {
+    // Firebase에 팀 합류 저장
+    await joinTeam(roomCode, teamId, name);
+
+    setCurrentRoomCode(roomCode);
     setGameState(prev => ({
       ...prev,
       myName: name,
       myTeamId: teamId,
       stage: Stage.WAITING_ROOM
     }));
-  };
+  }, []);
+
+  const handleRoomConnect = useCallback((roomCode: string) => {
+    setCurrentRoomCode(roomCode);
+  }, []);
 
   const handleStartGame = () => {
-    // Legacy handler (if using Intro screen manually), usually Admin starts game now.
-    setGameState(prev => ({ 
-      ...prev, 
+    setGameState(prev => ({
+      ...prev,
       stage: Stage.MAP,
     }));
   };
 
   const handleTimeExpire = () => {
     setGameState(prev => ({
-        ...prev,
-        stage: Stage.FAILURE
+      ...prev,
+      stage: Stage.FAILURE
     }));
   };
 
   const handleSelectLocation = (id: LocationId) => {
-    setGameState(prev => ({ 
-      ...prev, 
+    setGameState(prev => ({
+      ...prev,
       stage: Stage.PUZZLE_VIEW,
       currentLocationId: id
     }));
   };
 
   const handleBackToMap = () => {
-    setGameState(prev => ({ 
-      ...prev, 
+    setGameState(prev => ({
+      ...prev,
       stage: Stage.MAP,
       currentLocationId: null
     }));
   };
 
-  // NEW: Handle granular sub-puzzle solving (A-1, A-2, etc.)
-  const handleSubPuzzleSolve = (subPuzzleId: string) => {
-    const { myTeamId, teams } = gameState;
-    if (!myTeamId) return;
+  // 서브퍼즐 해결 (Firebase)
+  const handleSubPuzzleSolve = useCallback(async (subPuzzleId: string) => {
+    const { myTeamId } = gameState;
+    if (!myTeamId || !currentRoomCode) return;
 
-    const currentTeam = teams[myTeamId];
-    if (!currentTeam) return;
+    await solveSubPuzzle(currentRoomCode, myTeamId, subPuzzleId);
+  }, [gameState.myTeamId, currentRoomCode]);
 
-    // Avoid duplicates
-    if (!currentTeam.solvedSubPuzzles?.includes(subPuzzleId)) {
-        const newSolved = [...(currentTeam.solvedSubPuzzles || []), subPuzzleId];
-        const updates = { solvedSubPuzzles: newSolved };
-        
-        // Persist
-        updateTeamProgress(myTeamId, updates);
-        // Broadcast
-        sendClientAction('UPDATE_TEAM', { teamId: myTeamId, updates });
-    }
-  };
-
-  const handleSolvePuzzle = () => {
-    const { currentLocationId, myTeamId, teams } = gameState;
-    if (!currentLocationId || !myTeamId) return;
-    
-    // Update local and storage state for the team
-    const currentTeam = teams[myTeamId];
-    if (!currentTeam) return;
-
-    const newCompleted = [...currentTeam.completedLocations, currentLocationId];
-    const newUnlocked = [...currentTeam.unlockedLocations];
-    const newCompletionTimes = { ...currentTeam.completionTimes, [currentLocationId]: Date.now() };
+  // 스테이지 완료 (Firebase)
+  const handleSolvePuzzle = useCallback(async () => {
+    const { currentLocationId, myTeamId } = gameState;
+    if (!currentLocationId || !myTeamId || !currentRoomCode) return;
 
     const puzzle = PUZZLES[currentLocationId];
-    let isFinished = false;
+    const isFinished = await completeStage(
+      currentRoomCode,
+      myTeamId,
+      currentLocationId,
+      puzzle.nextLocationId || null
+    );
 
-    if (puzzle.nextLocationId) {
-       if (!newUnlocked.includes(puzzle.nextLocationId)) {
-         newUnlocked.push(puzzle.nextLocationId);
-       }
-    } else {
-      // End Game
-      isFinished = true;
-    }
-
-    const updates = {
-      completedLocations: newCompleted,
-      unlockedLocations: newUnlocked,
-      completionTimes: newCompletionTimes,
-      finishTime: isFinished ? Date.now() : null,
-      currentLocationId: null // Reset current location on map
-    };
-
-    // Persist to storage
-    updateTeamProgress(myTeamId, updates);
-    
-    // Broadcast to Admin
-    sendClientAction('UPDATE_TEAM', { teamId: myTeamId, updates });
-
-    // Update Local UI
     setGameState(prev => ({
-       ...prev,
-       stage: isFinished ? Stage.SUCCESS : Stage.MAP,
-       currentLocationId: null
+      ...prev,
+      stage: isFinished ? Stage.SUCCESS : Stage.MAP,
+      currentLocationId: null
     }));
-  };
+  }, [gameState.currentLocationId, gameState.myTeamId, currentRoomCode]);
 
-  const handleUseHint = () => {
-    const { myTeamId, teams } = gameState;
-    if (myTeamId && teams[myTeamId]) {
-       const newCount = teams[myTeamId].hintCount + 1;
-       const updates = { hintCount: newCount };
-       updateTeamProgress(myTeamId, updates);
-       sendClientAction('UPDATE_TEAM', { teamId: myTeamId, updates });
-    }
-  };
+  // 힌트 사용 (Firebase)
+  const handleUseHint = useCallback(async () => {
+    const { myTeamId } = gameState;
+    if (!myTeamId || !currentRoomCode) return;
+
+    await useHint(currentRoomCode, myTeamId);
+  }, [gameState.myTeamId, currentRoomCode]);
 
   // --- Render Flow ---
 
   const renderContent = () => {
     // 1. Initial Selection Screen
     if (gameState.stage === Stage.LOGIN_SELECT) {
-        return (
+      return (
         <div className="min-h-screen bg-imf-black flex flex-col items-center justify-center p-6 space-y-8 relative overflow-hidden">
-            {/* Background Effect */}
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-800 via-black to-black opacity-50 z-0"></div>
-            
-            <div className="text-center z-10 relative">
-                <h1 className="text-5xl md:text-6xl font-black text-white mb-2 tracking-tighter uppercase glitch-layer-1" data-text="Mission: Protocol Fallout">Mission: Protocol Fallout</h1>
-                <p className="text-imf-cyan font-mono tracking-widest text-sm animate-pulse">SECURE ACCESS TERMINAL</p>
-            </div>
-            
-            <div className="flex flex-col md:flex-row gap-6 w-full max-w-2xl z-10 relative">
-                <button 
-                onClick={() => setGameState(prev => ({ ...prev, stage: Stage.USER_JOIN }))}
-                className="flex-1 bg-gray-900/80 backdrop-blur border border-gray-700 hover:border-imf-cyan hover:bg-gray-800 p-8 rounded-xl transition-all group hover:scale-[1.02] shadow-lg"
-                >
-                <Users className="w-12 h-12 text-imf-cyan mb-4 group-hover:scale-110 transition-transform duration-300" />
-                <h3 className="text-xl font-bold text-white mb-2">요원 접속 (Agent)</h3>
-                <p className="text-sm text-gray-500 group-hover:text-gray-400">팀에 합류하여 미션을 수행합니다.</p>
-                </button>
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-800 via-black to-black opacity-50 z-0"></div>
 
-                <button 
-                onClick={() => setGameState(prev => ({ ...prev, stage: Stage.ADMIN_LOGIN }))}
-                className="flex-1 bg-gray-900/80 backdrop-blur border border-gray-700 hover:border-imf-red hover:bg-gray-800 p-8 rounded-xl transition-all group hover:scale-[1.02] shadow-lg"
-                >
-                <UserCog className="w-12 h-12 text-imf-red mb-4 group-hover:scale-110 transition-transform duration-300" />
-                <h3 className="text-xl font-bold text-white mb-2">관리자 (Admin)</h3>
-                <p className="text-sm text-gray-500 group-hover:text-gray-400">방을 개설하고 현황을 모니터링합니다.</p>
-                </button>
-            </div>
+          <div className="text-center z-10 relative">
+            <h1 className="text-4xl md:text-6xl font-black text-white mb-2 tracking-tighter uppercase glitch-layer-1" data-text="Mission: Protocol Fallout">Mission: Protocol Fallout</h1>
+            <p className="text-imf-cyan font-mono tracking-widest text-sm animate-pulse">SECURE ACCESS TERMINAL</p>
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-6 w-full max-w-2xl z-10 relative">
+            <button
+              onClick={() => setGameState(prev => ({ ...prev, stage: Stage.USER_JOIN }))}
+              className="flex-1 bg-gray-900/80 backdrop-blur border border-gray-700 hover:border-imf-cyan hover:bg-gray-800 p-8 rounded-xl transition-all group hover:scale-[1.02] shadow-lg"
+            >
+              <Users className="w-12 h-12 text-imf-cyan mb-4 group-hover:scale-110 transition-transform duration-300" />
+              <h3 className="text-xl font-bold text-white mb-2">요원 접속 (Agent)</h3>
+              <p className="text-sm text-gray-500 group-hover:text-gray-400">팀에 합류하여 미션을 수행합니다.</p>
+            </button>
+
+            <button
+              onClick={() => setGameState(prev => ({ ...prev, stage: Stage.ADMIN_LOGIN }))}
+              className="flex-1 bg-gray-900/80 backdrop-blur border border-gray-700 hover:border-imf-red hover:bg-gray-800 p-8 rounded-xl transition-all group hover:scale-[1.02] shadow-lg"
+            >
+              <UserCog className="w-12 h-12 text-imf-red mb-4 group-hover:scale-110 transition-transform duration-300" />
+              <h3 className="text-xl font-bold text-white mb-2">관리자 (Admin)</h3>
+              <p className="text-sm text-gray-500 group-hover:text-gray-400">방을 개설하고 현황을 모니터링합니다.</p>
+            </button>
+          </div>
         </div>
-        );
+      );
     }
 
     // 2. Admin Flows
     if (gameState.stage === Stage.ADMIN_LOGIN) {
-        return <AdminLogin onLoginSuccess={handleAdminLoginSuccess} onBack={() => setGameState(prev => ({ ...prev, stage: Stage.LOGIN_SELECT }))} />;
+      return <AdminLogin onLoginSuccess={handleAdminLoginSuccess} onBack={() => setGameState(prev => ({ ...prev, stage: Stage.LOGIN_SELECT }))} />;
     }
     if (gameState.stage === Stage.ADMIN_DASHBOARD) {
-        return <AdminDashboard room={gameState.room} />;
+      return <AdminDashboard />;
     }
 
     // 3. User Flows
     if (gameState.stage === Stage.USER_JOIN) {
-        return <UserJoin room={gameState.room} onJoin={handleUserJoin} onBack={() => setGameState(prev => ({ ...prev, stage: Stage.LOGIN_SELECT }))} />;
+      return (
+        <UserJoin
+          onJoin={handleUserJoin}
+          onBack={() => setGameState(prev => ({ ...prev, stage: Stage.LOGIN_SELECT }))}
+          onRoomConnect={handleRoomConnect}
+        />
+      );
     }
 
     if (gameState.stage === Stage.WAITING_ROOM) {
-        return (
+      return (
         <div className="min-h-screen bg-imf-black flex flex-col items-center justify-center p-6 relative overflow-hidden">
-            <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop')] bg-cover opacity-20 animate-pulse"></div>
-            <div className="z-10 text-center">
-                <div className="inline-block px-4 py-2 bg-imf-cyan/10 border border-imf-cyan rounded-full text-imf-cyan font-bold animate-pulse mb-6">
-                WAITING FOR SIGNAL...
-                </div>
-                <h1 className="text-4xl font-bold text-white mb-2">작전 대기 중</h1>
-                <p className="text-gray-400 font-mono">관리자가 미션을 시작하면 자동으로 화면이 전환됩니다.</p>
-                <div className="mt-8 text-xl font-bold text-white border-t border-b border-gray-700 py-4">
-                {gameState.myTeamId}조 - {gameState.myName} 요원
-                </div>
+          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop')] bg-cover opacity-20 animate-pulse"></div>
+          <div className="z-10 text-center">
+            <div className="inline-block px-4 py-2 bg-imf-cyan/10 border border-imf-cyan rounded-full text-imf-cyan font-bold animate-pulse mb-6">
+              WAITING FOR SIGNAL...
             </div>
+            <h1 className="text-4xl font-bold text-white mb-2">작전 대기 중</h1>
+            <p className="text-gray-400 font-mono">관리자가 미션을 시작하면 자동으로 화면이 전환됩니다.</p>
+            <div className="mt-8 text-xl font-bold text-white border-t border-b border-gray-700 py-4">
+              {gameState.myTeamId}조 - {gameState.myName} 요원
+            </div>
+            {gameState.room && (
+              <div className="mt-4 text-sm text-gray-500 font-mono">
+                작전명: {gameState.room.orgName}
+              </div>
+            )}
+          </div>
         </div>
-        );
+      );
     }
 
     // 4. Game Stages
     if (gameState.stage === Stage.INTRO) {
-        return <IntroScreen onStart={handleStartGame} />;
+      return <IntroScreen onStart={handleStartGame} />;
     }
 
     if (gameState.stage === Stage.FAILURE) {
-        return <FailureScreen />;
+      return <FailureScreen />;
     }
 
     if (gameState.stage === Stage.SUCCESS) {
-        return (
-        <SuccessScreen 
-            gameStartTime={gameState.room?.startTime || Date.now()}
-            completionTimes={completionTimes}
-            hintCount={hintCount}
-            finishTime={currentTeam?.finishTime || Date.now()}
+      return (
+        <SuccessScreen
+          gameStartTime={gameState.room?.startTime || Date.now()}
+          completionTimes={completionTimes}
+          hintCount={hintCount}
+          finishTime={currentTeam?.finishTime || Date.now()}
         />
-        );
+      );
     }
 
     // Main Game Loop (Map & Puzzles)
     return (
-        <>
-            {gameState.stage === Stage.PUZZLE_VIEW && gameState.currentLocationId ? (
-                <PuzzleView 
-                    puzzle={PUZZLES[gameState.currentLocationId]}
-                    onBack={handleBackToMap}
-                    onSolve={handleSolvePuzzle}
-                    onSubPuzzleSolve={handleSubPuzzleSolve}
-                    hintCount={hintCount}
-                    onUseHint={handleUseHint}
-                    solvedSubPuzzles={solvedSubPuzzles} // Pass global state
-                />
-            ) : (
-                <MapScreen 
-                    unlockedLocations={unlockedLocations}
-                    completedLocations={completedLocations}
-                    onSelectLocation={handleSelectLocation}
-                />
-            )}
-        </>
+      <>
+        {gameState.stage === Stage.PUZZLE_VIEW && gameState.currentLocationId ? (
+          <PuzzleView
+            puzzle={PUZZLES[gameState.currentLocationId]}
+            onBack={handleBackToMap}
+            onSolve={handleSolvePuzzle}
+            onSubPuzzleSolve={handleSubPuzzleSolve}
+            hintCount={hintCount}
+            onUseHint={handleUseHint}
+            solvedSubPuzzles={solvedSubPuzzles}
+          />
+        ) : (
+          <MapScreen
+            unlockedLocations={unlockedLocations}
+            completedLocations={completedLocations}
+            onSelectLocation={handleSelectLocation}
+          />
+        )}
+      </>
     );
   };
 
-  // Determine if we should show the global timer
-  // Show timer if:
-  // 1. Room is started and has a start time
-  // 2. Not in Admin screens
-  // 3. Not in Login/Join/Waiting screens (unless you want it there, but usually only after start)
-  // 4. Not in Success/Failure (timer stops visually or is hidden)
-  const showTimer = 
-    gameState.room?.isStarted && 
-    gameState.room?.startTime && 
+  // Timer visibility
+  const showTimer =
+    gameState.room?.isStarted &&
+    gameState.room?.startTime &&
     ![
-        Stage.LOGIN_SELECT, 
-        Stage.ADMIN_LOGIN, 
-        Stage.ADMIN_DASHBOARD, 
-        Stage.USER_JOIN, 
-        Stage.WAITING_ROOM,
-        Stage.SUCCESS,
-        Stage.FAILURE
+      Stage.LOGIN_SELECT,
+      Stage.ADMIN_LOGIN,
+      Stage.ADMIN_DASHBOARD,
+      Stage.USER_JOIN,
+      Stage.WAITING_ROOM,
+      Stage.SUCCESS,
+      Stage.FAILURE
     ].includes(gameState.stage);
 
   return (
     <>
-        <ScanlineOverlay />
-        
-        {/* Global Timer Overlay */}
-        {showTimer && gameState.room?.startTime && (
-            <Timer 
-                startTime={gameState.room.startTime} 
-                durationMinutes={60} 
-                onTimeExpire={handleTimeExpire} 
-            />
-        )}
+      <ScanlineOverlay />
 
-        {renderContent()}
+      {showTimer && gameState.room?.startTime && (
+        <Timer
+          startTime={gameState.room.startTime}
+          durationMinutes={60}
+          onTimeExpire={handleTimeExpire}
+        />
+      )}
+
+      {renderContent()}
     </>
   );
 };
