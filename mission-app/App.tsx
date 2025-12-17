@@ -213,13 +213,29 @@ const App: React.FC = () => {
     }
   }, [gameState.currentLocationId, gameState.myTeamId, gameState.teams, currentRoomCode]);
 
-  // 힌트 사용 (Firebase)
+  // 힌트 사용 (Firebase + 로컬 상태 즉시 업데이트)
   const handleUseHint = useCallback(async () => {
-    const { myTeamId } = gameState;
+    const { myTeamId, teams } = gameState;
     if (!myTeamId || !currentRoomCode) return;
 
+    // Firebase 업데이트
     await useHint(currentRoomCode, myTeamId);
-  }, [gameState.myTeamId, currentRoomCode]);
+
+    // 로컬 상태 즉시 업데이트
+    const currentTeamData = teams[myTeamId];
+    const newHintCount = (currentTeamData?.hintCount || 0) + 1;
+
+    setGameState(prev => ({
+      ...prev,
+      teams: {
+        ...prev.teams,
+        [myTeamId]: {
+          ...currentTeamData,
+          hintCount: newHintCount,
+        }
+      }
+    }));
+  }, [gameState.myTeamId, gameState.teams, currentRoomCode]);
 
   // --- Render Flow ---
 

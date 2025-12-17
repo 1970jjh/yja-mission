@@ -13,7 +13,8 @@ import {
   subscribeToTeams,
   subscribeToAllRooms
 } from '../services/firebaseService';
-import { Users, Play, Trophy, Ban, Activity, Wifi, Trash2, LogIn, PlusSquare, ArrowLeft, MonitorPlay, Link2, Check, Bomb, ShieldCheck, QrCode, X } from 'lucide-react';
+import { Users, Play, Trophy, Ban, Activity, Wifi, Trash2, LogIn, PlusSquare, ArrowLeft, MonitorPlay, Link2, Check, Bomb, ShieldCheck, QrCode, X, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
+import { PUZZLES } from '../constants';
 import BackgroundMusic from './BackgroundMusic';
 
 const AdminDashboard: React.FC = () => {
@@ -425,46 +426,109 @@ const AdminDashboard: React.FC = () => {
       {/* Main Content */}
       <main className="flex-1 p-6 overflow-y-auto">
         {showResults ? (
-          // Results View
-          <div className="max-w-4xl mx-auto">
-            <h1 className="text-3xl text-center font-bold text-imf-gold mb-8 uppercase tracking-[0.5em] drop-shadow-lg">Final Mission Report</h1>
-            <div className="space-y-4">
+          // Results View - PC용 큰 폰트
+          <div className="max-w-6xl mx-auto">
+            <h1 className="text-5xl text-center font-bold text-imf-gold mb-12 uppercase tracking-[0.5em] drop-shadow-lg">Final Mission Report</h1>
+            <div className="space-y-8">
               {getSortedTeams().map((team, index) => {
                 const finalTimeMs = calculateTotalTime(team);
                 const minutes = Math.floor(finalTimeMs / 60000);
                 const seconds = Math.floor((finalTimeMs % 60000) / 1000);
+                const baseDuration = team.finishTime ? team.finishTime - (localRoom?.startTime || 0) : 0;
+                const penaltyMs = team.hintCount * 5 * 60 * 1000;
+
+                // 문제별 소요시간 계산
+                const stageOrder = [
+                  LocationId.BLUE_HOUSE,
+                  LocationId.SAN_FRANCISCO,
+                  LocationId.FRANCE,
+                  LocationId.INCHEON_AIRPORT
+                ];
+
+                const formatDuration = (ms: number) => {
+                  if (ms <= 0) return '-';
+                  const totalSeconds = Math.floor(ms / 1000);
+                  const m = Math.floor(totalSeconds / 60);
+                  const s = totalSeconds % 60;
+                  return `${m}분 ${s}초`;
+                };
+
+                const getStageDuration = (locId: LocationId, prevTime: number) => {
+                  const completedAt = team.completionTimes?.[locId];
+                  if (!completedAt) return 0;
+                  return completedAt - prevTime;
+                };
+
+                let previousTime = localRoom?.startTime || 0;
 
                 return (
-                  <div key={team.teamId} className={`relative flex items-center justify-between p-6 rounded-lg border ${index === 0 ? 'bg-gradient-to-r from-yellow-900/30 to-black border-imf-gold' : 'bg-gray-900 border-gray-700'}`}>
-                    <div className="flex items-center gap-6">
-                      <div className={`text-4xl font-black font-mono w-16 text-center ${index === 0 ? 'text-imf-gold' : index === 1 ? 'text-gray-300' : index === 2 ? 'text-amber-700' : 'text-gray-600'}`}>
-                        {index + 1}
-                      </div>
-                      <div>
-                        <h3 className="text-2xl font-bold text-white">{team.name}</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Users size={14} className="text-gray-500" />
-                          <p className="text-sm text-gray-300 font-mono">
-                            {team.members && team.members.length > 0 ? team.members.join(', ') : 'No Agents'}
-                          </p>
+                  <div key={team.teamId} className={`relative rounded-xl border-2 overflow-hidden ${index === 0 ? 'bg-gradient-to-r from-yellow-900/30 to-black border-imf-gold shadow-[0_0_30px_rgba(255,215,0,0.3)]' : 'bg-gray-900 border-gray-700'}`}>
+                    {/* 팀 헤더 */}
+                    <div className="flex items-center justify-between p-8 border-b border-gray-800">
+                      <div className="flex items-center gap-8">
+                        <div className={`text-6xl font-black font-mono w-24 text-center ${index === 0 ? 'text-imf-gold' : index === 1 ? 'text-gray-300' : index === 2 ? 'text-amber-700' : 'text-gray-600'}`}>
+                          {index + 1}
+                        </div>
+                        <div>
+                          <h3 className="text-4xl font-bold text-white">{team.name}</h3>
+                          <div className="flex items-center gap-3 mt-2">
+                            <Users size={20} className="text-gray-500" />
+                            <p className="text-xl text-gray-300 font-mono">
+                              {team.members && team.members.length > 0 ? team.members.join(', ') : 'No Agents'}
+                            </p>
+                          </div>
                         </div>
                       </div>
+
+                      <div className="text-right">
+                        {team.finishTime ? (
+                          <>
+                            <div className="text-5xl font-mono font-bold text-imf-cyan">{minutes}분 {seconds}초</div>
+                            <div className="flex flex-col gap-1 text-lg text-gray-400 mt-2">
+                              <span>기본: {formatDuration(baseDuration)}</span>
+                              <span className="text-imf-red flex items-center gap-2 justify-end">
+                                <AlertTriangle size={16} />
+                                힌트 페널티 ({team.hintCount}회): +{team.hintCount * 5}분
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-3xl text-red-500 font-bold uppercase tracking-widest">미완료</div>
+                        )}
+                      </div>
+                      {index === 0 && <Trophy className="absolute -top-4 -right-4 text-imf-gold w-16 h-16 drop-shadow-glow animate-bounce" />}
                     </div>
 
-                    <div className="text-right">
-                      {team.finishTime ? (
-                        <>
-                          <div className="text-3xl font-mono font-bold text-imf-cyan">{minutes}분 {seconds}초</div>
-                          <div className="flex flex-col gap-0.5 text-[10px] text-gray-500 uppercase tracking-wider mt-1">
-                            <span>Base: {Math.floor((team.finishTime - (localRoom?.startTime || 0)) / 60000)}m {Math.floor(((team.finishTime - (localRoom?.startTime || 0)) % 60000) / 1000)}s</span>
-                            <span className="text-imf-red">Penalty: +{team.hintCount * 5}m</span>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="text-red-500 font-bold uppercase tracking-widest">Failed / Incomplete</div>
-                      )}
-                    </div>
-                    {index === 0 && <Trophy className="absolute -top-4 -right-4 text-imf-gold w-12 h-12 drop-shadow-glow animate-bounce" />}
+                    {/* 문제별 소요시간 */}
+                    {team.finishTime && (
+                      <div className="p-6 bg-black/30">
+                        <h4 className="text-xl font-bold text-imf-cyan mb-4 flex items-center gap-2">
+                          <Clock size={20} />
+                          문제별 소요시간
+                        </h4>
+                        <div className="grid grid-cols-4 gap-4">
+                          {stageOrder.map((locId) => {
+                            const duration = getStageDuration(locId, previousTime);
+                            const isCompleted = team.completionTimes?.[locId];
+                            if (isCompleted) {
+                              previousTime = team.completionTimes[locId];
+                            }
+
+                            return (
+                              <div key={locId} className={`p-4 rounded-lg border ${isCompleted ? 'bg-white/5 border-gray-700' : 'bg-gray-900/50 border-gray-800'}`}>
+                                <div className="flex items-center gap-2 mb-2">
+                                  {isCompleted ? <CheckCircle size={18} className="text-green-500" /> : <Ban size={18} className="text-gray-600" />}
+                                  <span className="text-lg font-bold text-white">{PUZZLES[locId].title}</span>
+                                </div>
+                                <div className={`text-2xl font-mono ${isCompleted ? 'text-imf-cyan' : 'text-gray-600'}`}>
+                                  {formatDuration(duration)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
