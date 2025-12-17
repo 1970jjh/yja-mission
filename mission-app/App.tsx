@@ -134,13 +134,33 @@ const App: React.FC = () => {
     }));
   };
 
-  // 서브퍼즐 해결 (Firebase)
+  // 서브퍼즐 해결 (Firebase + 로컬 상태 즉시 업데이트)
   const handleSubPuzzleSolve = useCallback(async (subPuzzleId: string) => {
-    const { myTeamId } = gameState;
+    const { myTeamId, teams } = gameState;
     if (!myTeamId || !currentRoomCode) return;
 
+    // Firebase 업데이트
     await solveSubPuzzle(currentRoomCode, myTeamId, subPuzzleId);
-  }, [gameState.myTeamId, currentRoomCode]);
+
+    // 로컬 상태 즉시 업데이트
+    const currentTeamData = teams[myTeamId];
+    const newSolvedSubPuzzles = [...(currentTeamData?.solvedSubPuzzles || [])];
+
+    if (!newSolvedSubPuzzles.includes(subPuzzleId)) {
+      newSolvedSubPuzzles.push(subPuzzleId);
+    }
+
+    setGameState(prev => ({
+      ...prev,
+      teams: {
+        ...prev.teams,
+        [myTeamId]: {
+          ...currentTeamData,
+          solvedSubPuzzles: newSolvedSubPuzzles,
+        }
+      }
+    }));
+  }, [gameState.myTeamId, gameState.teams, currentRoomCode]);
 
   // 스테이지 완료 (Firebase)
   const handleSolvePuzzle = useCallback(async () => {
