@@ -144,10 +144,13 @@ const App: React.FC = () => {
 
   // 스테이지 완료 (Firebase)
   const handleSolvePuzzle = useCallback(async () => {
-    const { currentLocationId, myTeamId } = gameState;
+    const { currentLocationId, myTeamId, teams } = gameState;
     if (!currentLocationId || !myTeamId || !currentRoomCode) return;
 
     const puzzle = PUZZLES[currentLocationId];
+    const currentTeamData = teams[myTeamId];
+
+    // Firebase 업데이트
     const isFinished = await completeStage(
       currentRoomCode,
       myTeamId,
@@ -155,29 +158,40 @@ const App: React.FC = () => {
       puzzle.nextLocationId || null
     );
 
-    // 다음 스테이지가 있으면 바로 이동, 없으면 성공 화면
+    // 로컬 상태 즉시 업데이트 (Firebase 동기화 기다리지 않음)
+    const newCompletedLocations = [...(currentTeamData?.completedLocations || []), currentLocationId];
+    const newUnlockedLocations = [...(currentTeamData?.unlockedLocations || [])];
+
+    if (puzzle.nextLocationId && !newUnlockedLocations.includes(puzzle.nextLocationId)) {
+      newUnlockedLocations.push(puzzle.nextLocationId);
+    }
+
+    const updatedTeams = {
+      ...teams,
+      [myTeamId]: {
+        ...currentTeamData,
+        completedLocations: newCompletedLocations,
+        unlockedLocations: newUnlockedLocations,
+      }
+    };
+
     if (isFinished) {
       setGameState(prev => ({
         ...prev,
+        teams: updatedTeams,
         stage: Stage.SUCCESS,
         currentLocationId: null
       }));
-    } else if (puzzle.nextLocationId) {
-      // 다음 퍼즐로 바로 이동
-      setGameState(prev => ({
-        ...prev,
-        stage: Stage.PUZZLE_VIEW,
-        currentLocationId: puzzle.nextLocationId!
-      }));
     } else {
-      // 다음 위치가 없으면 지도로
+      // 지도로 이동 (다음 위치가 활성화된 상태)
       setGameState(prev => ({
         ...prev,
+        teams: updatedTeams,
         stage: Stage.MAP,
         currentLocationId: null
       }));
     }
-  }, [gameState.currentLocationId, gameState.myTeamId, currentRoomCode]);
+  }, [gameState.currentLocationId, gameState.myTeamId, gameState.teams, currentRoomCode]);
 
   // 힌트 사용 (Firebase)
   const handleUseHint = useCallback(async () => {
