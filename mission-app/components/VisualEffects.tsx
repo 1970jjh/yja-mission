@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 
 // --- CRT Overlay ---
 export const ScanlineOverlay: React.FC = () => (
@@ -172,4 +172,168 @@ export const ParticleNetwork: React.FC = () => {
   }, []);
 
   return <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none opacity-40" />;
+};
+
+// --- Animated Earth Background ---
+export const AnimatedEarthBackground: React.FC = () => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Generate random twinkling stars
+  const stars = useMemo(() => {
+    const starArray: { x: number; y: number; size: number; twinkleSpeed: number; opacity: number }[] = [];
+    for (let i = 0; i < 200; i++) {
+      starArray.push({
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        size: Math.random() * 2 + 0.5,
+        twinkleSpeed: Math.random() * 2 + 1,
+        opacity: Math.random() * 0.5 + 0.3,
+      });
+    }
+    return starArray;
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+
+    let time = 0;
+
+    const animate = () => {
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(0, 0, width, height);
+
+      // Draw twinkling stars
+      stars.forEach(star => {
+        const twinkle = Math.sin(time * star.twinkleSpeed) * 0.3 + 0.7;
+        const x = (star.x / 100) * width;
+        const y = (star.y / 100) * height;
+
+        ctx.beginPath();
+        ctx.arc(x, y, star.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity * twinkle})`;
+        ctx.fill();
+
+        // Add a subtle glow to some stars
+        if (star.size > 1.5) {
+          const gradient = ctx.createRadialGradient(x, y, 0, x, y, star.size * 3);
+          gradient.addColorStop(0, `rgba(0, 240, 255, ${0.2 * twinkle})`);
+          gradient.addColorStop(1, 'transparent');
+          ctx.beginPath();
+          ctx.arc(x, y, star.size * 3, 0, Math.PI * 2);
+          ctx.fillStyle = gradient;
+          ctx.fill();
+        }
+      });
+
+      // Draw animated city lights clusters (simulating earth lights)
+      const drawCityLights = () => {
+        const clusters = [
+          { x: width * 0.3, y: height * 0.7, count: 30 },
+          { x: width * 0.5, y: height * 0.65, count: 40 },
+          { x: width * 0.7, y: height * 0.75, count: 25 },
+          { x: width * 0.2, y: height * 0.8, count: 20 },
+          { x: width * 0.8, y: height * 0.68, count: 35 },
+        ];
+
+        clusters.forEach(cluster => {
+          for (let i = 0; i < cluster.count; i++) {
+            const angle = (i / cluster.count) * Math.PI * 2 + time * 0.1;
+            const radius = Math.sin(i * 0.5) * 50 + 20;
+            const x = cluster.x + Math.cos(angle) * radius + Math.sin(time + i) * 5;
+            const y = cluster.y + Math.sin(angle) * radius * 0.4 + Math.cos(time + i) * 3;
+            const flicker = Math.sin(time * 3 + i * 0.7) * 0.3 + 0.7;
+
+            ctx.beginPath();
+            ctx.arc(x, y, 1 + Math.random() * 0.5, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 200, 100, ${0.4 * flicker})`;
+            ctx.fill();
+          }
+        });
+      };
+
+      drawCityLights();
+
+      // Draw a subtle earth curve at the bottom
+      const earthCurve = () => {
+        const gradient = ctx.createRadialGradient(
+          width / 2, height + 200, 100,
+          width / 2, height + 200, 600
+        );
+        gradient.addColorStop(0, 'rgba(30, 60, 100, 0.5)');
+        gradient.addColorStop(0.5, 'rgba(20, 40, 80, 0.3)');
+        gradient.addColorStop(1, 'transparent');
+
+        ctx.beginPath();
+        ctx.ellipse(width / 2, height + 200, 700, 400, 0, 0, Math.PI * 2);
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // Add atmospheric glow
+        const atmosGradient = ctx.createRadialGradient(
+          width / 2, height + 200, 350,
+          width / 2, height + 200, 450
+        );
+        atmosGradient.addColorStop(0, 'rgba(0, 100, 200, 0.1)');
+        atmosGradient.addColorStop(0.5, 'rgba(0, 200, 255, 0.05)');
+        atmosGradient.addColorStop(1, 'transparent');
+
+        ctx.beginPath();
+        ctx.ellipse(width / 2, height + 200, 750, 450, 0, 0, Math.PI * 2);
+        ctx.fillStyle = atmosGradient;
+        ctx.fill();
+      };
+
+      earthCurve();
+
+      time += 0.02;
+      requestAnimationFrame(animate);
+    };
+
+    const animId = requestAnimationFrame(animate);
+
+    const handleResize = () => {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = width;
+      canvas.height = height;
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [stars]);
+
+  return (
+    <>
+      <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none" />
+      {/* Earth image overlay with slow movement */}
+      <div
+        className="absolute inset-0 z-[1] pointer-events-none overflow-hidden"
+        style={{
+          backgroundImage: `url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center bottom',
+          opacity: 0.3,
+          animation: 'slowPan 60s ease-in-out infinite alternate',
+        }}
+      />
+      <style>{`
+        @keyframes slowPan {
+          0% { background-position: 40% 100%; }
+          100% { background-position: 60% 100%; }
+        }
+      `}</style>
+    </>
+  );
 };

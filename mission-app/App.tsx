@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { GameState, Stage, LocationId, RoomData } from './types';
+import { GameState, Stage, LocationId } from './types';
 import { PUZZLES } from './constants';
-import { getRoomData, getTeamsData, updateTeamProgress } from './services/storageService';
-import { sendClientAction } from './services/networkService';
-import { ScanlineOverlay } from './components/VisualEffects';
+import { getRoomData, getTeamsData, updateTeamProgress, activateRoom } from './services/storageService';
+import { joinRoom, sendClientAction } from './services/networkService';
+import { ScanlineOverlay, AnimatedEarthBackground } from './components/VisualEffects';
 
 // Screens
 import IntroScreen from './components/IntroScreen';
@@ -17,14 +17,70 @@ import AdminDashboard from './components/AdminDashboard';
 import UserJoin from './components/UserJoin';
 import { UserCog, Users } from 'lucide-react';
 
+// Session persistence keys
+const SESSION_KEY = 'imf_user_session';
+
+interface UserSession {
+  myTeamId: number | null;
+  myName: string | null;
+  roomCode: string | null;
+  currentLocationId: LocationId | null;
+  stage: Stage;
+}
+
+const saveSession = (session: UserSession) => {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+};
+
+const loadSession = (): UserSession | null => {
+  const data = localStorage.getItem(SESSION_KEY);
+  return data ? JSON.parse(data) : null;
+};
+
+const clearSession = () => {
+  localStorage.removeItem(SESSION_KEY);
+};
+
 const App: React.FC = () => {
-  const [gameState, setGameState] = useState<GameState>({
-    stage: Stage.LOGIN_SELECT,
-    myTeamId: null,
-    myName: null,
-    currentLocationId: null,
-    room: null,
-    teams: {},
+  const [gameState, setGameState] = useState<GameState>(() => {
+    // Try to restore session on initial load
+    const savedSession = loadSession();
+    const room = getRoomData();
+
+    // If we have a saved session and room data matches, restore the state
+    if (savedSession && room && savedSession.roomCode === room.roomCode && savedSession.myTeamId) {
+      // Determine which stage to restore to
+      let restoreStage = savedSession.stage;
+
+      // If game has started and we were in waiting room, move to puzzle
+      if (room.isStarted && savedSession.stage === Stage.WAITING_ROOM) {
+        restoreStage = Stage.PUZZLE_VIEW;
+      }
+
+      // If we were in a game stage, keep it
+      const gameStages = [Stage.PUZZLE_VIEW, Stage.MAP, Stage.INTRO, Stage.SUCCESS, Stage.FAILURE];
+      if (room.isStarted && !gameStages.includes(restoreStage)) {
+        restoreStage = Stage.PUZZLE_VIEW;
+      }
+
+      return {
+        stage: restoreStage,
+        myTeamId: savedSession.myTeamId,
+        myName: savedSession.myName,
+        currentLocationId: savedSession.currentLocationId || (room.isStarted ? LocationId.BLUE_HOUSE : null),
+        room,
+        teams: getTeamsData(),
+      };
+    }
+
+    return {
+      stage: Stage.LOGIN_SELECT,
+      myTeamId: null,
+      myName: null,
+      currentLocationId: null,
+      room: null,
+      teams: {},
+    };
   });
 
   // Derived state for current user's team to fix access in renderContent
@@ -40,28 +96,57 @@ const App: React.FC = () => {
     const syncData = () => {
       const room = getRoomData();
       const teams = getTeamsData();
-      
+
       setGameState(prev => {
         // If user is waiting in room and game starts, move directly to Blue House Puzzle
         let nextStage = prev.stage;
         let nextLocationId = prev.currentLocationId;
-        
+
         if (prev.stage === Stage.WAITING_ROOM && room?.isStarted) {
            nextStage = Stage.PUZZLE_VIEW;
            nextLocationId = LocationId.BLUE_HOUSE;
         }
-        
+
+        // Sync team member's current location based on team progress
+        // This ensures all team members see the same puzzle progress
+        if (prev.myTeamId && teams[prev.myTeamId] && room?.isStarted) {
+          const team = teams[prev.myTeamId];
+
+          // If team has finished, show success
+          if (team.finishTime && prev.stage !== Stage.SUCCESS) {
+            nextStage = Stage.SUCCESS;
+          }
+
+          // If in puzzle view but the current puzzle is already completed by team,
+          // and the user hasn't moved yet, guide them to the map or next location
+          if (nextStage === Stage.PUZZLE_VIEW && nextLocationId) {
+            const isCurrentCompleted = team.completedLocations?.includes(nextLocationId);
+            if (isCurrentCompleted) {
+              // Find the next incomplete location from unlocked ones
+              const nextIncomplete = team.unlockedLocations?.find(
+                loc => !team.completedLocations?.includes(loc)
+              );
+              if (nextIncomplete) {
+                nextLocationId = nextIncomplete;
+              } else if (team.unlockedLocations?.length === team.completedLocations?.length) {
+                // All done, stay on map
+                nextStage = Stage.MAP;
+              }
+            }
+          }
+        }
+
         // If game ended, move to success (or result view)
         if (room?.isEnded && prev.stage !== Stage.SUCCESS && prev.stage !== Stage.ADMIN_DASHBOARD) {
             // Optional: could force move to a game over screen here
         }
 
-        return { 
-            ...prev, 
-            room, 
-            teams, 
+        return {
+            ...prev,
+            room,
+            teams,
             stage: nextStage,
-            currentLocationId: nextLocationId 
+            currentLocationId: nextLocationId
         };
       });
     };
@@ -77,11 +162,49 @@ const App: React.FC = () => {
 
   // --- Handlers ---
 
+  // Save session whenever relevant state changes
+  useEffect(() => {
+    if (gameState.myTeamId && gameState.myName && gameState.room?.roomCode) {
+      saveSession({
+        myTeamId: gameState.myTeamId,
+        myName: gameState.myName,
+        roomCode: gameState.room.roomCode,
+        currentLocationId: gameState.currentLocationId,
+        stage: gameState.stage,
+      });
+    }
+  }, [gameState.myTeamId, gameState.myName, gameState.room?.roomCode, gameState.currentLocationId, gameState.stage]);
+
+  // Reconnect to room when restoring session
+  useEffect(() => {
+    const room = gameState.room;
+    if (room?.roomCode && gameState.myTeamId) {
+      // Silently try to reconnect to the host
+      joinRoom(room.roomCode, () => {
+        console.log('Reconnected to room');
+      }, () => {
+        console.log('Could not reconnect, using local data');
+      });
+    }
+  }, []);
+
   const handleAdminLoginSuccess = () => {
     setGameState(prev => ({ ...prev, stage: Stage.ADMIN_DASHBOARD }));
   };
 
   const handleUserJoin = (name: string, teamId: number) => {
+    const room = gameState.room;
+    // Save session immediately
+    if (room?.roomCode) {
+      saveSession({
+        myTeamId: teamId,
+        myName: name,
+        roomCode: room.roomCode,
+        currentLocationId: null,
+        stage: Stage.WAITING_ROOM,
+      });
+    }
+
     setGameState(prev => ({
       ...prev,
       myName: name,
@@ -251,7 +374,7 @@ const App: React.FC = () => {
     if (gameState.stage === Stage.WAITING_ROOM) {
         return (
         <div className="min-h-screen bg-imf-black flex flex-col items-center justify-center p-6 relative overflow-hidden">
-            <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop')] bg-cover opacity-20 animate-pulse"></div>
+            <AnimatedEarthBackground />
             <div className="z-10 text-center">
                 <div className="inline-block px-4 py-2 bg-imf-cyan/10 border border-imf-cyan rounded-full text-imf-cyan font-bold animate-pulse mb-6">
                 WAITING FOR SIGNAL...
@@ -260,6 +383,9 @@ const App: React.FC = () => {
                 <p className="text-gray-400 font-mono">관리자가 미션을 시작하면 자동으로 화면이 전환됩니다.</p>
                 <div className="mt-8 text-xl font-bold text-white border-t border-b border-gray-700 py-4">
                 {gameState.myTeamId}조 - {gameState.myName} 요원
+                </div>
+                <div className="mt-4 text-sm text-gray-500 font-mono">
+                작전명: {gameState.room?.orgName}
                 </div>
             </div>
         </div>
@@ -335,10 +461,10 @@ const App: React.FC = () => {
         
         {/* Global Timer Overlay */}
         {showTimer && gameState.room?.startTime && (
-            <Timer 
-                startTime={gameState.room.startTime} 
-                durationMinutes={60} 
-                onTimeExpire={handleTimeExpire} 
+            <Timer
+                startTime={gameState.room.startTime}
+                durationMinutes={gameState.room.durationMinutes || 60}
+                onTimeExpire={handleTimeExpire}
             />
         )}
 
