@@ -233,27 +233,67 @@ export const AnimatedEarthBackground: React.FC = () => {
         }
       });
 
-      // Draw animated city lights clusters (simulating earth lights)
+      // Draw animated city lights clusters (simulating earth lights) with pulsing glow
       const drawCityLights = () => {
+        // Global pulse effect - makes the whole earth "breathe" with light
+        const globalPulse = Math.sin(time * 0.5) * 0.4 + 0.6; // Slow pulse between 0.2 and 1.0
+
         const clusters = [
-          { x: width * 0.3, y: height * 0.7, count: 30 },
-          { x: width * 0.5, y: height * 0.65, count: 40 },
-          { x: width * 0.7, y: height * 0.75, count: 25 },
-          { x: width * 0.2, y: height * 0.8, count: 20 },
-          { x: width * 0.8, y: height * 0.68, count: 35 },
+          { x: width * 0.15, y: height * 0.75, count: 35, baseColor: [255, 220, 150] },
+          { x: width * 0.3, y: height * 0.7, count: 50, baseColor: [255, 200, 100] },
+          { x: width * 0.45, y: height * 0.65, count: 60, baseColor: [255, 230, 120] },
+          { x: width * 0.6, y: height * 0.68, count: 55, baseColor: [255, 210, 110] },
+          { x: width * 0.75, y: height * 0.72, count: 45, baseColor: [255, 200, 100] },
+          { x: width * 0.85, y: height * 0.78, count: 30, baseColor: [255, 220, 130] },
+          // Additional scattered lights
+          { x: width * 0.25, y: height * 0.85, count: 20, baseColor: [255, 180, 80] },
+          { x: width * 0.5, y: height * 0.8, count: 25, baseColor: [255, 200, 100] },
+          { x: width * 0.7, y: height * 0.85, count: 22, baseColor: [255, 190, 90] },
         ];
 
         clusters.forEach(cluster => {
-          for (let i = 0; i < cluster.count; i++) {
-            const angle = (i / cluster.count) * Math.PI * 2 + time * 0.1;
-            const radius = Math.sin(i * 0.5) * 50 + 20;
-            const x = cluster.x + Math.cos(angle) * radius + Math.sin(time + i) * 5;
-            const y = cluster.y + Math.sin(angle) * radius * 0.4 + Math.cos(time + i) * 3;
-            const flicker = Math.sin(time * 3 + i * 0.7) * 0.3 + 0.7;
+          // Draw glow effect for each cluster
+          const clusterPulse = Math.sin(time * 0.8 + cluster.x * 0.01) * 0.3 + 0.7;
+          const glowRadius = 80 * clusterPulse * globalPulse;
 
+          const gradient = ctx.createRadialGradient(
+            cluster.x, cluster.y, 0,
+            cluster.x, cluster.y, glowRadius
+          );
+          gradient.addColorStop(0, `rgba(${cluster.baseColor[0]}, ${cluster.baseColor[1]}, ${cluster.baseColor[2]}, ${0.15 * globalPulse})`);
+          gradient.addColorStop(0.5, `rgba(${cluster.baseColor[0]}, ${cluster.baseColor[1]}, ${cluster.baseColor[2]}, ${0.05 * globalPulse})`);
+          gradient.addColorStop(1, 'transparent');
+
+          ctx.beginPath();
+          ctx.arc(cluster.x, cluster.y, glowRadius, 0, Math.PI * 2);
+          ctx.fillStyle = gradient;
+          ctx.fill();
+
+          // Draw individual lights
+          for (let i = 0; i < cluster.count; i++) {
+            const angle = (i / cluster.count) * Math.PI * 2 + time * 0.05;
+            const radius = Math.sin(i * 0.5 + time * 0.2) * 60 + 30;
+            const x = cluster.x + Math.cos(angle) * radius + Math.sin(time * 0.5 + i) * 8;
+            const y = cluster.y + Math.sin(angle) * radius * 0.35 + Math.cos(time * 0.5 + i) * 5;
+
+            // Each light has its own flicker
+            const flicker = Math.sin(time * 2 + i * 1.3) * 0.4 + 0.6;
+            const intensity = flicker * globalPulse;
+            const lightSize = 1.5 + Math.random() * 1;
+
+            // Light core
             ctx.beginPath();
-            ctx.arc(x, y, 1 + Math.random() * 0.5, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(255, 200, 100, ${0.4 * flicker})`;
+            ctx.arc(x, y, lightSize, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(${cluster.baseColor[0]}, ${cluster.baseColor[1]}, ${cluster.baseColor[2]}, ${0.8 * intensity})`;
+            ctx.fill();
+
+            // Light glow
+            const lightGlow = ctx.createRadialGradient(x, y, 0, x, y, lightSize * 4);
+            lightGlow.addColorStop(0, `rgba(${cluster.baseColor[0]}, ${cluster.baseColor[1]}, ${cluster.baseColor[2]}, ${0.3 * intensity})`);
+            lightGlow.addColorStop(1, 'transparent');
+            ctx.beginPath();
+            ctx.arc(x, y, lightSize * 4, 0, Math.PI * 2);
+            ctx.fillStyle = lightGlow;
             ctx.fill();
           }
         });
