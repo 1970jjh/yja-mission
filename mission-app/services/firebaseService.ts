@@ -1,150 +1,122 @@
-import { initializeApp, FirebaseApp } from 'firebase/app';
-import { getDatabase, ref, set, remove, onValue, off, DataSnapshot, Database } from 'firebase/database';
 import { RoomSummary } from '../types';
 
-// Firebase configuration from environment variables
-// Set these in your .env file or Vercel environment settings:
-// VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_DATABASE_URL,
-// VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || ''
-};
+// API endpoint for room discovery
+const API_BASE = '/api/rooms';
 
-// Check if Firebase is configured
-const isFirebaseConfigured = (): boolean => {
-  return !!(firebaseConfig.apiKey && firebaseConfig.databaseURL && firebaseConfig.projectId);
-};
-
-// Initialize Firebase
-let app: FirebaseApp | null = null;
-let database: Database | null = null;
-
-const initFirebase = (): Database | null => {
-  if (!isFirebaseConfigured()) {
-    console.warn('Firebase is not configured. Room discovery will use local storage only.');
-    return null;
-  }
-
-  if (!app) {
-    try {
-      app = initializeApp(firebaseConfig);
-      database = getDatabase(app);
-      console.log('Firebase initialized successfully');
-    } catch (error) {
-      console.error('Firebase initialization error:', error);
-      return null;
-    }
-  }
-  return database;
-};
-
-// --- Room Registry Functions ---
-
-const ROOMS_REF = 'rooms';
+// --- Room Registry Functions using Vercel Serverless API ---
 
 export const publishRoomToFirebase = async (room: RoomSummary): Promise<void> => {
-  const db = initFirebase();
-  if (!db) return;
-
   try {
-    const roomRef = ref(db, `${ROOMS_REF}/${room.roomCode}`);
-    await set(roomRef, {
-      roomCode: room.roomCode,
-      orgName: room.orgName,
-      createdAt: room.createdAt,
-      isEnded: room.isEnded
+    const response = await fetch(API_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(room)
     });
-    console.log('Room published to Firebase:', room.roomCode);
+
+    if (response.ok) {
+      console.log('Room published to server:', room.roomCode);
+    } else {
+      console.warn('Failed to publish room to server');
+    }
   } catch (error) {
-    console.error('Error publishing room to Firebase:', error);
+    console.error('Error publishing room:', error);
   }
 };
 
 export const removeRoomFromFirebase = async (roomCode: string): Promise<void> => {
-  const db = initFirebase();
-  if (!db) return;
-
   try {
-    const roomRef = ref(db, `${ROOMS_REF}/${roomCode}`);
-    await remove(roomRef);
-    console.log('Room removed from Firebase:', roomCode);
+    const response = await fetch(`${API_BASE}?code=${roomCode}`, {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      console.log('Room removed from server:', roomCode);
+    }
   } catch (error) {
-    console.error('Error removing room from Firebase:', error);
+    console.error('Error removing room:', error);
   }
 };
 
 export const updateRoomStatusInFirebase = async (roomCode: string, isEnded: boolean): Promise<void> => {
-  const db = initFirebase();
-  if (!db) return;
-
   try {
-    const roomRef = ref(db, `${ROOMS_REF}/${roomCode}/isEnded`);
-    await set(roomRef, isEnded);
-    console.log('Room status updated in Firebase:', roomCode, isEnded);
+    // Fetch current room data and update
+    const response = await fetch(API_BASE);
+    const data = await response.json();
+    const rooms = data.rooms || [];
+    const room = rooms.find((r: RoomSummary) => r.roomCode === roomCode);
+
+    if (room) {
+      room.isEnded = isEnded;
+      await fetch(API_BASE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(room)
+      });
+      console.log('Room status updated:', roomCode, isEnded);
+    }
   } catch (error) {
-    console.error('Error updating room status in Firebase:', error);
+    console.error('Error updating room status:', error);
   }
 };
 
+// Polling interval for room updates (in milliseconds)
+const POLL_INTERVAL = 3000;
+
 export const subscribeToRooms = (callback: (rooms: RoomSummary[]) => void): (() => void) => {
-  const db = initFirebase();
-  if (!db) {
-    callback([]);
-    return () => {};
-  }
+  let isActive = true;
 
-  const roomsRef = ref(db, ROOMS_REF);
+  const fetchRooms = async () => {
+    try {
+      const response = await fetch(API_BASE);
+      const data = await response.json();
 
-  const handleSnapshot = (snapshot: DataSnapshot) => {
-    const data = snapshot.val();
-    if (data) {
-      const rooms: RoomSummary[] = Object.values(data);
-      // Sort: active first, then by createdAt descending
-      rooms.sort((a, b) => {
-        if (a.isEnded && !b.isEnded) return 1;
-        if (!a.isEnded && b.isEnded) return -1;
-        return b.createdAt - a.createdAt;
-      });
-      callback(rooms);
-    } else {
-      callback([]);
+      if (isActive) {
+        const rooms = data.rooms || [];
+        // Sort: active first, then by createdAt descending
+        rooms.sort((a: RoomSummary, b: RoomSummary) => {
+          if (a.isEnded && !b.isEnded) return 1;
+          if (!a.isEnded && b.isEnded) return -1;
+          return b.createdAt - a.createdAt;
+        });
+        callback(rooms);
+      }
+    } catch (error) {
+      console.error('Error fetching rooms:', error);
+      if (isActive) {
+        callback([]);
+      }
     }
   };
 
-  onValue(roomsRef, handleSnapshot);
+  // Initial fetch
+  fetchRooms();
+
+  // Poll for updates
+  const intervalId = setInterval(fetchRooms, POLL_INTERVAL);
 
   // Return unsubscribe function
   return () => {
-    off(roomsRef, 'value', handleSnapshot);
+    isActive = false;
+    clearInterval(intervalId);
   };
 };
 
 // Fetch rooms once (for initial load)
 export const fetchRoomsOnce = async (): Promise<RoomSummary[]> => {
-  const db = initFirebase();
-  if (!db) return [];
+  try {
+    const response = await fetch(API_BASE);
+    const data = await response.json();
+    const rooms = data.rooms || [];
 
-  return new Promise((resolve) => {
-    const roomsRef = ref(db, ROOMS_REF);
-    onValue(roomsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const rooms: RoomSummary[] = Object.values(data);
-        rooms.sort((a, b) => {
-          if (a.isEnded && !b.isEnded) return 1;
-          if (!a.isEnded && b.isEnded) return -1;
-          return b.createdAt - a.createdAt;
-        });
-        resolve(rooms);
-      } else {
-        resolve([]);
-      }
-    }, { onlyOnce: true });
-  });
+    rooms.sort((a: RoomSummary, b: RoomSummary) => {
+      if (a.isEnded && !b.isEnded) return 1;
+      if (!a.isEnded && b.isEnded) return -1;
+      return b.createdAt - a.createdAt;
+    });
+
+    return rooms;
+  } catch (error) {
+    console.error('Error fetching rooms:', error);
+    return [];
+  }
 };
