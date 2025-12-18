@@ -1,4 +1,5 @@
 import { RoomData, TeamData, LocationId, RoomSummary } from '../types';
+import { publishRoomToFirebase, removeRoomFromFirebase, updateRoomStatusInFirebase } from './firebaseService';
 
 // Active Session Keys (The "Current" Game)
 const KEY_ACTIVE_ROOM = 'imf_room_data';
@@ -69,12 +70,16 @@ export const createNewRoom = (orgName: string, totalTeams: number, durationMinut
   localStorage.setItem(getTeamsKey(roomCode), JSON.stringify(newTeams));
 
   // Add to registry
-  addToRegistry({
+  const roomSummary: RoomSummary = {
     roomCode,
     orgName,
     createdAt: Date.now(),
     isEnded: false
-  });
+  };
+  addToRegistry(roomSummary);
+
+  // Publish to Firebase for cross-device discovery
+  publishRoomToFirebase(roomSummary);
 
   return roomCode;
 };
@@ -96,7 +101,10 @@ export const deleteRoom = (roomCode: string) => {
   localStorage.removeItem(getRoomKey(roomCode));
   localStorage.removeItem(getTeamsKey(roomCode));
   removeFromRegistry(roomCode);
-  
+
+  // Remove from Firebase
+  removeRoomFromFirebase(roomCode);
+
   // If deleting the currently active room, clear active state
   const current = getRoomData();
   if (current?.roomCode === roomCode) {
@@ -109,11 +117,11 @@ export const deleteRoom = (roomCode: string) => {
 export const saveRoomData = (data: RoomData) => {
   // 1. Save to Active Session
   localStorage.setItem(KEY_ACTIVE_ROOM, JSON.stringify(data));
-  
+
   // 2. Persist to Namespaced Storage (Backup)
   if (data.roomCode) {
     localStorage.setItem(getRoomKey(data.roomCode), JSON.stringify(data));
-    
+
     // Update registry status if needed
     const registry = getGameRegistry();
     const entry = registry.find(r => r.roomCode === data.roomCode);
@@ -121,8 +129,11 @@ export const saveRoomData = (data: RoomData) => {
         entry.isEnded = data.isEnded;
         localStorage.setItem(KEY_GAME_REGISTRY, JSON.stringify(registry));
     }
+
+    // Update Firebase status
+    updateRoomStatusInFirebase(data.roomCode, data.isEnded);
   }
-  
+
   window.dispatchEvent(new Event('storage'));
 };
 

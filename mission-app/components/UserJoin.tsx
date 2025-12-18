@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { RoomData, TeamData, RoomSummary } from '../types';
 import { getTeamsData, getGameRegistry, clearActiveGameData, activateRoom } from '../services/storageService';
 import { joinRoom, sendClientAction, disconnect } from '../services/networkService';
+import { subscribeToRooms } from '../services/firebaseService';
 import { User, Users, LogIn, Loader2, Activity, Globe, MonitorX, ArrowLeft, Play, Clock } from 'lucide-react';
 
 interface Props {
@@ -24,15 +25,44 @@ const UserJoin: React.FC<Props> = ({ room, onJoin, onBack }) => {
   // --- EFFECTS ---
 
   useEffect(() => {
-    // Load all rooms from registry (filter out ended ones for cleaner UX)
-    const registry = getGameRegistry();
-    // Show active rooms first, then ended ones
-    const sorted = registry.sort((a, b) => {
-      if (a.isEnded && !b.isEnded) return 1;
-      if (!a.isEnded && b.isEnded) return -1;
-      return b.createdAt - a.createdAt;
+    // First, load from local registry as fallback
+    const localRegistry = getGameRegistry();
+    if (localRegistry.length > 0) {
+      const sorted = [...localRegistry].sort((a, b) => {
+        if (a.isEnded && !b.isEnded) return 1;
+        if (!a.isEnded && b.isEnded) return -1;
+        return b.createdAt - a.createdAt;
+      });
+      setAvailableRooms(sorted);
+    }
+
+    // Subscribe to Firebase for real-time cross-device room discovery
+    const unsubscribe = subscribeToRooms((firebaseRooms) => {
+      // Merge Firebase rooms with local registry
+      const localRooms = getGameRegistry();
+      const mergedMap = new Map<string, RoomSummary>();
+
+      // Add local rooms first
+      localRooms.forEach(room => mergedMap.set(room.roomCode, room));
+
+      // Firebase rooms take precedence (for cross-device discovery)
+      firebaseRooms.forEach(room => mergedMap.set(room.roomCode, room));
+
+      const merged = Array.from(mergedMap.values());
+
+      // Sort: active first, then by createdAt descending
+      merged.sort((a, b) => {
+        if (a.isEnded && !b.isEnded) return 1;
+        if (!a.isEnded && b.isEnded) return -1;
+        return b.createdAt - a.createdAt;
+      });
+
+      setAvailableRooms(merged);
     });
-    setAvailableRooms(sorted);
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   // Listen for team data updates
