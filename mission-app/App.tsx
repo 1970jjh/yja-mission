@@ -372,9 +372,28 @@ const App: React.FC = () => {
     }
 
     if (gameState.stage === Stage.WAITING_ROOM) {
+        const handleBackToMain = () => {
+          clearSession();
+          setGameState({
+            stage: Stage.LOGIN_SELECT,
+            myTeamId: null,
+            myName: null,
+            currentLocationId: null,
+            room: null,
+            teams: {},
+          });
+        };
+
         return (
         <div className="min-h-screen bg-imf-black flex flex-col items-center justify-center p-6 relative overflow-hidden">
             <AnimatedEarthBackground />
+            {/* Back Button */}
+            <button
+              onClick={handleBackToMain}
+              className="absolute top-6 left-6 z-20 flex items-center gap-2 text-gray-500 hover:text-white transition-colors"
+            >
+              <span className="text-lg">←</span> 메인으로
+            </button>
             <div className="z-10 text-center">
                 <div className="inline-block px-4 py-2 bg-imf-cyan/10 border border-imf-cyan rounded-full text-imf-cyan font-bold animate-pulse mb-6">
                 WAITING FOR SIGNAL...
