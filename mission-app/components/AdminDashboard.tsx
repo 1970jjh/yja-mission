@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { RoomData, TeamData, RoomSummary, LocationId } from '../types';
-import { 
-  saveRoomData, 
-  getTeamsData, 
-  clearActiveGameData, 
-  getGameRegistry, 
-  createNewRoom, 
-  activateRoom, 
+import {
+  saveRoomData,
+  getTeamsData,
+  clearActiveGameData,
+  getGameRegistry,
+  createNewRoom,
+  activateRoom,
   deleteRoom,
   getRoomData
 } from '../services/storageService';
 import { initializeHost, broadcastState, disconnect } from '../services/networkService';
-import { Users, Play, Trophy, Ban, Activity, Trash2, LogIn, PlusSquare, ArrowLeft, MonitorPlay, Bomb, ShieldCheck, Eye, EyeOff, Clock, QrCode, X } from 'lucide-react';
+import { Users, Play, Trophy, Ban, RefreshCcw, Activity, Wifi, Trash2, LogIn, PlusSquare, ArrowLeft, MonitorPlay, Link2, Copy, Check, Bomb, AlertTriangle, ShieldCheck, UserPlus, QrCode, X, Eye, EyeOff, Clock } from 'lucide-react';
 import BackgroundMusic from './BackgroundMusic';
 import { AnimatedEarthBackground } from './VisualEffects';
 
@@ -24,7 +24,7 @@ const TOTAL_STAGES = 4; // Blue House, SF, France, Incheon
 const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
   // Mode: 'LOBBY' (Choosing room) or 'DASHBOARD' (Monitoring room)
   const [viewMode, setViewMode] = useState<'LOBBY' | 'DASHBOARD'>(initialRoom ? 'DASHBOARD' : 'LOBBY');
-  
+
   // Lobby State
   const [roomList, setRoomList] = useState<RoomSummary[]>([]);
   const [newOrgName, setNewOrgName] = useState('');
@@ -36,6 +36,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
   const [localRoom, setLocalRoom] = useState<RoomData | null>(initialRoom);
   const [teams, setTeams] = useState<Record<number, TeamData>>({});
   const [showResults, setShowResults] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [spectatorMode, setSpectatorMode] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -53,7 +54,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
   useEffect(() => {
     if (viewMode === 'DASHBOARD' && localRoom?.roomCode) {
       initializeHost(localRoom.roomCode);
-      
+
       // Cleanup on unmount or mode switch
       return () => {
           disconnect();
@@ -135,7 +136,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
     const updatedRoom = { ...localRoom, isStarted: true, startTime: Date.now() };
     saveRoomData(updatedRoom);
     setLocalRoom(updatedRoom);
-    setTimeout(broadcastState, 100); 
+    setTimeout(broadcastState, 100);
   };
 
   const handleEndGame = () => {
@@ -145,6 +146,14 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
     setLocalRoom(updatedRoom);
     setShowResults(true);
     setTimeout(broadcastState, 100);
+  };
+
+  const handleCopyLink = () => {
+    if (!localRoom) return;
+    const url = `${window.location.origin}?room=${localRoom.roomCode}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   };
 
   const calculateTotalTime = (team: TeamData) => {
@@ -158,13 +167,13 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
     return (Object.values(teams) as TeamData[]).sort((a, b) => {
       const timeA = calculateTotalTime(a);
       const timeB = calculateTotalTime(b);
-      
+
       if (a.finishTime && b.finishTime) {
           return timeA - timeB;
       }
       if (a.finishTime) return -1;
       if (b.finishTime) return 1;
-      
+
       return b.completedLocations.length - a.completedLocations.length;
     });
   };
@@ -255,12 +264,12 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                             <PlusSquare size={24} />
                             <h2 className="text-xl font-bold uppercase tracking-wider">신규 작전 개설</h2>
                         </div>
-                        
+
                         <div className="space-y-6">
                             <div>
                                 <label className="block text-sm font-bold mb-2 text-white">기관/단체명</label>
-                                <input 
-                                type="text" 
+                                <input
+                                type="text"
                                 value={newOrgName}
                                 onChange={(e) => setNewOrgName(e.target.value)}
                                 className="w-full bg-black border border-gray-700 p-4 rounded text-white focus:border-imf-cyan outline-none transition-colors"
@@ -298,7 +307,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                                 </div>
                             </div>
 
-                            <button 
+                            <button
                                 onClick={handleCreateRoom}
                                 disabled={!newOrgName}
                                 className="w-full bg-imf-cyan hover:bg-cyan-400 text-black font-bold py-4 rounded uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2"
@@ -314,7 +323,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                             <MonitorPlay size={24} className="text-gray-500" />
                             진행 중인 작전 목록 ({roomList.length})
                         </h2>
-                        
+
                         {roomList.length === 0 ? (
                             <div className="p-8 border border-dashed border-gray-800 rounded-lg text-center text-gray-600 font-mono">
                                 NO ACTIVE OPERATIONS FOUND
@@ -331,6 +340,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                                             <div>
                                                 <h3 className="text-lg font-bold text-white group-hover:text-imf-cyan transition-colors">{room.orgName}</h3>
                                                 <div className="flex items-center gap-3 mt-2 text-xs font-mono text-gray-500">
+                                                    <span className="bg-gray-950 px-2 py-1 rounded text-imf-gold border border-gray-700">CODE: {room.roomCode}</span>
                                                     <span>{new Date(room.createdAt).toLocaleDateString()}</span>
                                                     {room.isEnded && <span className="text-red-500 font-bold">FINISHED</span>}
                                                 </div>
@@ -355,7 +365,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                     </div>
                 </div>
              </div>
-             
+
              <style>{`
                 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
                 .custom-scrollbar::-webkit-scrollbar-track { background: #111; }
@@ -372,7 +382,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
     <div className="min-h-screen bg-imf-black text-gray-200 font-sans flex flex-col relative overflow-hidden">
        <AnimatedEarthBackground />
        <BackgroundMusic />
-       
+
        {/* QR Code Modal */}
        {showQR && (
            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4" onClick={() => setShowQR(false)}>
@@ -386,7 +396,13 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                         />
                     </div>
                     <p className="mt-4 text-gray-600 font-mono text-center text-sm">
-                        요원들은 카메라로 스캔하여<br/>앱에 접속 후 작전을 선택합니다.
+                        요원들은 카메라로 스캔하여<br/>앱에 접속할 수 있습니다.
+                    </p>
+                    <div className="mt-4 bg-gray-100 px-4 py-2 rounded text-black font-mono font-bold border border-gray-300">
+                        CODE: {localRoom.roomCode}
+                    </div>
+                    <p className="mt-2 text-gray-500 text-xs text-center">
+                        접속 후 위 코드를 입력하세요
                     </p>
                     <button
                         onClick={() => setShowQR(false)}
@@ -397,7 +413,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                </div>
            </div>
        )}
-       
+
        {/* Dashboard Header */}
        <header className="bg-imf-dark/90 backdrop-blur-sm border-b border-imf-gray p-4 flex flex-col md:flex-row justify-between items-center sticky top-0 z-20 gap-4">
          <div className="flex items-center gap-4">
@@ -411,22 +427,36 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                 </h2>
                 <div className="flex flex-col gap-1 mt-1">
                     <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 bg-gray-800 px-3 py-1 rounded text-imf-cyan font-mono text-sm border border-imf-cyan/30">
+                            <Wifi size={14} className="animate-pulse" />
+                            CODE: <span className="font-bold text-lg tracking-widest">{localRoom.roomCode}</span>
+                        </div>
+
+                        {/* Invite Link Button */}
+                        <button
+                            onClick={handleCopyLink}
+                            className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded transition-all border ${copiedLink ? 'bg-green-600 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white'}`}
+                        >
+                            {copiedLink ? <Check size={14} /> : <Link2 size={14} />}
+                            {copiedLink ? '복사' : '링크'}
+                        </button>
+
                         {/* QR Button */}
                         <button
                             onClick={() => setShowQR(true)}
                             className="flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded transition-all border bg-gray-800 border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
                         >
-                            <QrCode size={14} /> 참가 QR
+                            <QrCode size={14} /> QR
                         </button>
-
-                        {localRoom.isStarted && !localRoom.isEnded && (
-                        <span className="text-xs text-imf-gold font-mono animate-pulse">OPERATION IN PROGRESS</span>
-                        )}
                     </div>
+
+                    {localRoom.isStarted && !localRoom.isEnded && (
+                    <p className="text-xs text-imf-gold font-mono animate-pulse">OPERATION IN PROGRESS</p>
+                    )}
                 </div>
             </div>
          </div>
-         
+
          {/* Timer Display */}
          {timeLeft !== null && (
            <div className={`px-6 py-2 rounded-lg border flex flex-col items-center transition-colors ${isUrgent ? 'bg-red-900/50 border-red-500 animate-pulse' : 'bg-gray-900 border-gray-700'}`}>
@@ -485,7 +515,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                   const finalTimeMs = calculateTotalTime(team);
                   const minutes = Math.floor(finalTimeMs / 60000);
                   const seconds = Math.floor((finalTimeMs % 60000) / 1000);
-                  
+
                   return (
                     <div key={team.teamId} className={`relative flex items-center justify-between p-6 rounded-lg border ${index === 0 ? 'bg-gradient-to-r from-yellow-900/30 to-black border-imf-gold' : 'bg-gray-900 border-gray-700'}`}>
                        <div className="flex items-center gap-6">
@@ -502,7 +532,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                             </div>
                           </div>
                        </div>
-                       
+
                        <div className="text-right">
                           {team.finishTime ? (
                             <>
@@ -529,7 +559,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                const isFinished = !!team.finishTime;
                const solvedSub = team.solvedSubPuzzles || [];
                const comp = team.completedLocations;
-               
+
                // Logic to determine active states
                const isBlueHouseDone = comp.includes(LocationId.BLUE_HOUSE);
                const isSFDone = comp.includes(LocationId.SAN_FRANCISCO);
@@ -552,7 +582,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                              </span>
                         </div>
                       </div>
-                      
+
                       <div className="text-right">
                          {team.hintCount > 0 && (
                              <div className="text-imf-red text-xs font-bold flex items-center gap-1 justify-end">
