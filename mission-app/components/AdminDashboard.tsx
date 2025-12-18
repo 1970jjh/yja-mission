@@ -11,7 +11,7 @@ import {
   getRoomData
 } from '../services/storageService';
 import { initializeHost, broadcastState, disconnect } from '../services/networkService';
-import { Users, Play, Trophy, Ban, RefreshCcw, Activity, Wifi, Trash2, LogIn, PlusSquare, ArrowLeft, MonitorPlay, Link2, Copy, Check, Bomb, AlertTriangle, ShieldCheck, UserPlus, QrCode, X, Eye, EyeOff, Clock } from 'lucide-react';
+import { Users, Play, Trophy, Ban, Activity, Trash2, LogIn, PlusSquare, ArrowLeft, MonitorPlay, Bomb, ShieldCheck, Eye, EyeOff, Clock, QrCode, X } from 'lucide-react';
 import BackgroundMusic from './BackgroundMusic';
 import { AnimatedEarthBackground } from './VisualEffects';
 
@@ -36,7 +36,6 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
   const [localRoom, setLocalRoom] = useState<RoomData | null>(initialRoom);
   const [teams, setTeams] = useState<Record<number, TeamData>>({});
   const [showResults, setShowResults] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [spectatorMode, setSpectatorMode] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -146,14 +145,6 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
     setLocalRoom(updatedRoom);
     setShowResults(true);
     setTimeout(broadcastState, 100);
-  };
-
-  const handleCopyLink = () => {
-    if (!localRoom) return;
-    const url = `${window.location.origin}?room=${localRoom.roomCode}`;
-    navigator.clipboard.writeText(url);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
   };
 
   const calculateTotalTime = (team: TeamData) => {
@@ -331,7 +322,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                         ) : (
                             <div className="max-h-[500px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
                                 {roomList.map((room) => (
-                                    <div 
+                                    <div
                                         key={room.roomCode}
                                         onClick={() => handleEnterRoom(room.roomCode)}
                                         className="group bg-gray-900 border border-gray-800 hover:border-imf-cyan hover:bg-gray-800 p-5 rounded-lg cursor-pointer transition-all relative"
@@ -340,18 +331,17 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                                             <div>
                                                 <h3 className="text-lg font-bold text-white group-hover:text-imf-cyan transition-colors">{room.orgName}</h3>
                                                 <div className="flex items-center gap-3 mt-2 text-xs font-mono text-gray-500">
-                                                    <span className="bg-gray-950 px-2 py-1 rounded text-imf-gold border border-gray-700">CODE: {room.roomCode}</span>
                                                     <span>{new Date(room.createdAt).toLocaleDateString()}</span>
                                                     {room.isEnded && <span className="text-red-500 font-bold">FINISHED</span>}
                                                 </div>
                                             </div>
-                                            
+
                                             <div className="flex items-center gap-3">
                                                 <LogIn className="text-gray-600 group-hover:text-imf-cyan transition-colors" />
                                             </div>
                                         </div>
-                                        
-                                        <button 
+
+                                        <button
                                             onClick={(e) => handleDeleteRoom(room.roomCode, e)}
                                             className="absolute top-4 right-4 p-2 text-gray-700 hover:text-red-500 transition-colors z-10"
                                             title="Delete Room"
@@ -396,13 +386,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                         />
                     </div>
                     <p className="mt-4 text-gray-600 font-mono text-center text-sm">
-                        요원들은 카메라로 스캔하여<br/>앱에 접속할 수 있습니다.
-                    </p>
-                    <div className="mt-4 bg-gray-100 px-4 py-2 rounded text-black font-mono font-bold border border-gray-300">
-                        CODE: {localRoom.roomCode}
-                    </div>
-                    <p className="mt-2 text-gray-500 text-xs text-center">
-                        접속 후 위 코드를 입력하세요
+                        요원들은 카메라로 스캔하여<br/>앱에 접속 후 작전을 선택합니다.
                     </p>
                     <button
                         onClick={() => setShowQR(false)}
@@ -427,32 +411,18 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                 </h2>
                 <div className="flex flex-col gap-1 mt-1">
                     <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2 bg-gray-800 px-3 py-1 rounded text-imf-cyan font-mono text-sm border border-imf-cyan/30">
-                            <Wifi size={14} className="animate-pulse" />
-                            CODE: <span className="font-bold text-lg tracking-widest">{localRoom.roomCode}</span>
-                        </div>
-                        
-                        {/* Invite Link Button */}
-                        <button 
-                            onClick={handleCopyLink}
-                            className={`flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded transition-all border ${copiedLink ? 'bg-green-600 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white'}`}
-                        >
-                            {copiedLink ? <Check size={14} /> : <Link2 size={14} />}
-                            {copiedLink ? '복사' : '링크'}
-                        </button>
-                        
                         {/* QR Button */}
                         <button
                             onClick={() => setShowQR(true)}
                             className="flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded transition-all border bg-gray-800 border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
                         >
-                            <QrCode size={14} /> QR
+                            <QrCode size={14} /> 참가 QR
                         </button>
+
+                        {localRoom.isStarted && !localRoom.isEnded && (
+                        <span className="text-xs text-imf-gold font-mono animate-pulse">OPERATION IN PROGRESS</span>
+                        )}
                     </div>
-                    
-                    {localRoom.isStarted && !localRoom.isEnded && (
-                    <p className="text-xs text-imf-gold font-mono animate-pulse">OPERATION IN PROGRESS</p>
-                    )}
                 </div>
             </div>
          </div>
