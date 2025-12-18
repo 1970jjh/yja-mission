@@ -76,6 +76,7 @@ export interface RoomData {
   startTime: number | null;
   isEnded: boolean;
   roomCode: string; // Random generated code for P2P connection
+  durationMinutes: number; // Configurable mission duration in minutes
 }
 
 export interface RoomSummary {

@@ -34,16 +34,17 @@ const removeFromRegistry = (roomCode: string) => {
 
 // --- Multi-Room Creation & Switching ---
 
-export const createNewRoom = (orgName: string, totalTeams: number): string => {
+export const createNewRoom = (orgName: string, totalTeams: number, durationMinutes: number = 60): string => {
   const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-  
+
   const newRoom: RoomData = {
     orgName,
     totalTeams,
     isStarted: false,
     startTime: null,
     isEnded: false,
-    roomCode
+    roomCode,
+    durationMinutes
   };
 
   const newTeams: Record<number, TeamData> = {};

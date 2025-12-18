@@ -120,8 +120,11 @@ const handleDataFromClient = (data: any) => {
     if (data.type === 'JOIN_REQUEST') {
         const { teamId, name } = data.payload;
         const teams = getTeamsData();
-        if (teams[teamId] && !teams[teamId].members.includes(name)) {
-             teams[teamId].members.push(name);
+        // Allow same name to rejoin (for reconnection support)
+        if (teams[teamId]) {
+             if (!teams[teamId].members.includes(name)) {
+                 teams[teamId].members.push(name);
+             }
              updateTeamsStorage(teams);
              broadcastState();
         }

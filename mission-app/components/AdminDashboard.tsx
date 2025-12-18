@@ -11,8 +11,9 @@ import {
   getRoomData
 } from '../services/storageService';
 import { initializeHost, broadcastState, disconnect } from '../services/networkService';
-import { Users, Play, Trophy, Ban, RefreshCcw, Activity, Wifi, Trash2, LogIn, PlusSquare, ArrowLeft, MonitorPlay, Link2, Copy, Check, Bomb, AlertTriangle, ShieldCheck, UserPlus, QrCode, X } from 'lucide-react';
+import { Users, Play, Trophy, Ban, RefreshCcw, Activity, Wifi, Trash2, LogIn, PlusSquare, ArrowLeft, MonitorPlay, Link2, Copy, Check, Bomb, AlertTriangle, ShieldCheck, UserPlus, QrCode, X, Eye, EyeOff, Clock } from 'lucide-react';
 import BackgroundMusic from './BackgroundMusic';
+import { AnimatedEarthBackground } from './VisualEffects';
 
 interface Props {
   room: RoomData | null;
@@ -28,6 +29,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
   const [roomList, setRoomList] = useState<RoomSummary[]>([]);
   const [newOrgName, setNewOrgName] = useState('');
   const [newTeamCount, setNewTeamCount] = useState(2);
+  const [newDurationMinutes, setNewDurationMinutes] = useState(60);
   const [isCreating, setIsCreating] = useState(false);
 
   // Dashboard State
@@ -36,6 +38,8 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
   const [showResults, setShowResults] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const [spectatorMode, setSpectatorMode] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
   // --- LOBBY EFFECTS ---
   useEffect(() => {
@@ -68,17 +72,36 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
       if (currentRoom) setLocalRoom(currentRoom);
     };
     sync();
-    const interval = setInterval(sync, 1000); 
+    const interval = setInterval(sync, 1000);
     return () => clearInterval(interval);
   }, [viewMode]);
+
+  // Timer countdown for dashboard
+  useEffect(() => {
+    if (viewMode !== 'DASHBOARD' || !localRoom?.isStarted || !localRoom?.startTime) {
+      setTimeLeft(null);
+      return;
+    }
+
+    const updateTimer = () => {
+      const duration = (localRoom.durationMinutes || 60) * 60 * 1000;
+      const elapsed = Date.now() - localRoom.startTime;
+      const remaining = Math.max(0, duration - elapsed);
+      setTimeLeft(remaining);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [viewMode, localRoom?.isStarted, localRoom?.startTime, localRoom?.durationMinutes]);
 
 
   // --- HANDLERS: LOBBY ---
   const handleCreateRoom = () => {
     if (!newOrgName) return;
-    const code = createNewRoom(newOrgName, newTeamCount);
+    const code = createNewRoom(newOrgName, newTeamCount, newDurationMinutes);
     activateRoom(code);
-    
+
     // Switch to dashboard
     const room = getRoomData();
     setLocalRoom(room);
@@ -159,41 +182,57 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
       return (Object.values(teams) as TeamData[]).reduce((acc, team) => acc + (team.members ? team.members.length : 0), 0);
   };
 
+  const formatTime = (ms: number) => {
+      const totalSeconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  const isUrgent = timeLeft !== null && timeLeft < 5 * 60 * 1000; // Less than 5 minutes
+
   // Helper to render Bomb Status indicators
-  const BombStatus = ({ 
-    label, 
-    isActive, 
-    isCompleted, 
-    isLocked, 
-    subPuzzlesToCheck, 
-    solvedSubPuzzles = [] 
-  }: { 
-    label: string, 
-    isActive: boolean, 
-    isCompleted: boolean, 
+  const BombStatus = ({
+    label,
+    isActive,
+    isCompleted,
+    isLocked,
+    subPuzzlesToCheck,
+    solvedSubPuzzles = [],
+    hideLabel = false
+  }: {
+    label: string,
+    isActive: boolean,
+    isCompleted: boolean,
     isLocked: boolean,
     subPuzzlesToCheck: string[],
-    solvedSubPuzzles?: string[]
+    solvedSubPuzzles?: string[],
+    hideLabel?: boolean
   }) => {
+      // Extract just "Nuke A", "Nuke B", "Nuke C" without city names when hiding
+      const parts = label.split(' ');
+      const shortLabel = parts.length >= 2 ? `${parts[0]} ${parts[1]}` : label; // "Nuke A (SF)" -> "Nuke A"
+      const displayLabel = hideLabel ? shortLabel : label;
+
       return (
           <div className={`flex flex-col items-center gap-1 p-2 rounded-lg border flex-1 transition-all
-              ${isCompleted ? 'bg-imf-cyan/10 border-imf-cyan text-imf-cyan' : 
-                isActive ? 'bg-red-900/20 border-red-500 text-red-500 animate-pulse-slow' : 
+              ${isCompleted ? 'bg-imf-cyan/10 border-imf-cyan text-imf-cyan' :
+                isActive ? 'bg-red-900/20 border-red-500 text-red-500 animate-pulse-slow' :
                 'bg-gray-800/50 border-gray-700 text-gray-600 grayscale'}
           `}>
               <div className="flex items-center gap-1 font-bold text-xs uppercase tracking-tighter">
                   {isCompleted ? <ShieldCheck size={12} /> : isActive ? <Bomb size={12} className="animate-pulse" /> : <Ban size={12} />}
-                  {label}
+                  {displayLabel}
               </div>
-              
+
               {/* Sub-Puzzle Dots */}
               {subPuzzlesToCheck.length > 0 && (
                   <div className="flex gap-1 mt-1">
                       {subPuzzlesToCheck.map((code) => {
                           const isSolved = solvedSubPuzzles.includes(code);
                           return (
-                              <div 
-                                key={code} 
+                              <div
+                                key={code}
                                 className={`w-1.5 h-1.5 rounded-full transition-colors ${isSolved ? 'bg-green-400 shadow-[0_0_5px_#4ade80]' : isActive ? 'bg-red-900' : 'bg-gray-700'}`}
                                 title={code}
                               />
@@ -240,14 +279,32 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
 
                             <div>
                                 <label className="block text-sm font-bold mb-2 text-white">참가 조 (Teams): <span className="text-imf-cyan">{newTeamCount}</span></label>
-                                <input 
-                                type="range" 
-                                min="2" 
-                                max="20" 
+                                <input
+                                type="range"
+                                min="2"
+                                max="20"
                                 value={newTeamCount}
                                 onChange={(e) => setNewTeamCount(Number(e.target.value))}
                                 className="w-full accent-imf-cyan h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
                                 />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold mb-2 text-white">미션 수행 시간: <span className="text-imf-gold">{newDurationMinutes}분</span></label>
+                                <input
+                                type="range"
+                                min="10"
+                                max="120"
+                                step="5"
+                                value={newDurationMinutes}
+                                onChange={(e) => setNewDurationMinutes(Number(e.target.value))}
+                                className="w-full accent-imf-gold h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                                />
+                                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>10분</span>
+                                    <span>60분</span>
+                                    <span>120분</span>
+                                </div>
                             </div>
 
                             <button 
@@ -322,7 +379,8 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
   if (!localRoom) return <div className="p-8 text-center text-red-500">Error: No Room Data Loaded</div>;
 
   return (
-    <div className="min-h-screen bg-imf-black text-gray-200 font-sans flex flex-col relative">
+    <div className="min-h-screen bg-imf-black text-gray-200 font-sans flex flex-col relative overflow-hidden">
+       <AnimatedEarthBackground />
        <BackgroundMusic />
        
        {/* QR Code Modal */}
@@ -331,19 +389,22 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                <div className="bg-white p-6 rounded-xl shadow-[0_0_50px_rgba(0,240,255,0.3)] flex flex-col items-center" onClick={e => e.stopPropagation()}>
                     <h3 className="text-black font-bold text-xl mb-4">작전 참가 QR 코드</h3>
                     <div className="bg-white p-2 rounded">
-                        <img 
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(`${window.location.origin}?room=${localRoom.roomCode}`)}`} 
-                            alt="Room QR Code" 
+                        <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent('https://yja-mission.vercel.app/')}`}
+                            alt="Room QR Code"
                             className="w-64 h-64"
                         />
                     </div>
                     <p className="mt-4 text-gray-600 font-mono text-center text-sm">
-                        요원들은 카메라로 스캔하여<br/>즉시 접속할 수 있습니다.
+                        요원들은 카메라로 스캔하여<br/>앱에 접속할 수 있습니다.
                     </p>
                     <div className="mt-4 bg-gray-100 px-4 py-2 rounded text-black font-mono font-bold border border-gray-300">
                         CODE: {localRoom.roomCode}
                     </div>
-                    <button 
+                    <p className="mt-2 text-gray-500 text-xs text-center">
+                        접속 후 위 코드를 입력하세요
+                    </p>
+                    <button
                         onClick={() => setShowQR(false)}
                         className="mt-6 text-gray-500 hover:text-black"
                     >
@@ -354,7 +415,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
        )}
        
        {/* Dashboard Header */}
-       <header className="bg-imf-dark border-b border-imf-gray p-4 flex flex-col md:flex-row justify-between items-center sticky top-0 z-20 gap-4">
+       <header className="bg-imf-dark/90 backdrop-blur-sm border-b border-imf-gray p-4 flex flex-col md:flex-row justify-between items-center sticky top-0 z-20 gap-4">
          <div className="flex items-center gap-4">
             <button onClick={handleBackToLobby} className="p-2 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors" title="Back to Lobby">
                 <ArrowLeft size={20} />
@@ -396,6 +457,17 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
             </div>
          </div>
          
+         {/* Timer Display */}
+         {timeLeft !== null && (
+           <div className={`px-6 py-2 rounded-lg border flex flex-col items-center transition-colors ${isUrgent ? 'bg-red-900/50 border-red-500 animate-pulse' : 'bg-gray-900 border-gray-700'}`}>
+               <span className="text-[10px] text-gray-500 font-mono uppercase">남은 시간</span>
+               <div className={`flex items-center gap-2 text-2xl font-bold font-mono ${isUrgent ? 'text-red-500' : 'text-imf-gold'}`}>
+                   <Clock size={20} className={isUrgent ? 'animate-spin' : ''} />
+                   {formatTime(timeLeft)}
+               </div>
+           </div>
+         )}
+
          {/* Total User Counter */}
          <div className="bg-gray-900 px-6 py-2 rounded-lg border border-gray-700 flex flex-col items-center">
              <span className="text-[10px] text-gray-500 font-mono uppercase">Total Agents</span>
@@ -407,6 +479,15 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
          </div>
 
          <div className="flex items-center gap-4">
+            {/* Spectator Mode Toggle */}
+            <button
+                onClick={() => setSpectatorMode(!spectatorMode)}
+                className={`flex items-center gap-2 px-4 py-2 rounded font-bold text-sm transition-all ${spectatorMode ? 'bg-imf-cyan text-black' : 'bg-gray-800 border border-gray-600 text-gray-300 hover:bg-gray-700'}`}
+                title={spectatorMode ? '관리자 모드로 전환' : '참가자 화면으로 전환 (도시명 숨김)'}
+            >
+                {spectatorMode ? <EyeOff size={16} /> : <Eye size={16} />}
+                {spectatorMode ? '관리자 모드' : '참가자 화면'}
+            </button>
             {!localRoom.isStarted ? (
                <button onClick={handleStartGame} className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded font-bold uppercase tracking-wide animate-pulse shadow-[0_0_15px_rgba(0,255,0,0.3)]">
                  <Play size={18} /> 미션 시작 (Start)
@@ -424,7 +505,7 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
        </header>
 
        {/* Main Content */}
-       <main className="flex-1 p-6 overflow-y-auto">
+       <main className="flex-1 p-6 overflow-y-auto relative z-10">
          {showResults ? (
            // Results View
            <div className="max-w-4xl mx-auto">
@@ -517,33 +598,36 @@ const AdminDashboard: React.FC<Props> = ({ room: initialRoom }) => {
                     {/* Progress Trackers */}
                     <div className="flex gap-2 w-full">
                         {/* 1. Bomb A (SF) */}
-                        <BombStatus 
-                            label="Nuke A (SF)" 
-                            isActive={isBlueHouseDone && !isSFDone} 
+                        <BombStatus
+                            label="Nuke A (SF)"
+                            isActive={isBlueHouseDone && !isSFDone}
                             isCompleted={isSFDone}
                             isLocked={!isBlueHouseDone}
                             subPuzzlesToCheck={['codeA-1', 'codeA-2', 'codeA-3']}
                             solvedSubPuzzles={solvedSub}
+                            hideLabel={spectatorMode}
                         />
 
                         {/* 2. Bomb B (France) */}
-                        <BombStatus 
-                            label="Nuke B (PARIS)" 
-                            isActive={isSFDone && !isFranceDone} 
+                        <BombStatus
+                            label="Nuke B (PARIS)"
+                            isActive={isSFDone && !isFranceDone}
                             isCompleted={isFranceDone}
                             isLocked={!isSFDone}
                             subPuzzlesToCheck={['codeB-1', 'codeB-2', 'codeB-3']}
                             solvedSubPuzzles={solvedSub}
+                            hideLabel={spectatorMode}
                         />
 
                         {/* 3. Bomb C (Incheon) */}
-                        <BombStatus 
-                            label="Nuke C (INC)" 
-                            isActive={isFranceDone && !isIncheonDone} 
+                        <BombStatus
+                            label="Nuke C (INC)"
+                            isActive={isFranceDone && !isIncheonDone}
                             isCompleted={isIncheonDone}
                             isLocked={!isFranceDone}
                             subPuzzlesToCheck={['codeC-1', 'codeC-2', 'codeC-3']}
                             solvedSubPuzzles={solvedSub}
+                            hideLabel={spectatorMode}
                         />
                     </div>
                  </div>
